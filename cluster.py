@@ -25,6 +25,8 @@ class ClusteredMNIST:
     loader = DataLoader(mnist, batch_size=len(mnist), num_workers=5)
     encoder = tv.models.resnet50(pretrained=True)
 
+    num_class = 10
+
     @classmethod
     def t(cls):
         """
@@ -34,13 +36,13 @@ class ClusteredMNIST:
         a = cls._get_coding(0)
 
     @classmethod
-    def _get_data_index_list(cls, data_class, num_class=10):
+    def _get_data_index_list(cls, data_class):
         """
         获取某个数字的index列表
         :param _class:
         :return:
         """
-        index_lists = [[] for _ in range(num_class)]
+        index_lists = [[] for _ in range(cls.num_class)]
 
         _, label = next(cls.loader.__iter__())
         label = label.squeeze()
@@ -70,7 +72,7 @@ class ClusteredMNIST:
     @classmethod
     def coding2pkl(cls):
         coding_list = []
-        for data_class in range(10):
+        for data_class in range(cls.num_class):
             coding = cls._get_coding(data_class)
             coding_list.append(coding)
         pickle.dump(coding_list, open('./count/coding_list.pkl', 'wb'))
@@ -79,7 +81,7 @@ class ClusteredMNIST:
     def tsne2pkl(cls):
         tsne_list = []
         coding_list = pickle.load(open('./count/coding_list.pkl', 'rb'))
-        for data_class in tqdm(range(10)):
+        for data_class in tqdm(range(cls.num_class)):
             coding = coding_list[data_class]
             coding = TSNE(n_components=5, n_jobs=20, random_state=2).fit_transform(coding)
             tsne_list.append(coding)
@@ -89,7 +91,7 @@ class ClusteredMNIST:
     def kmeans2pkl(cls):
         coding_list = pickle.load(open('./count/coding_list.pkl', 'rb'))
         cluster_list = []
-        for data_class in tqdm(range(10)):
+        for data_class in tqdm(range(cls.num_class)):
             coding = coding_list[data_class]
             cluster = KMeans(n_clusters=5, random_state=2).fit(coding)
             cluster_list.append(cluster)
@@ -142,7 +144,7 @@ class ClusteredMNIST:
     @classmethod
     def print_ni_info(cls):
         ni_info_list = []
-        for data_class in range(10):
+        for data_class in range(cls.num_class):
             ni_info = cls._get_ni_info(data_class)
             print(ni_info)
             ni_info_list.append(ni_info)
@@ -170,7 +172,7 @@ class ClusteredMNIST:
                 os.mkdir(data_dir)
 
             count = 0
-            for data_class in range(10):
+            for data_class in range(cls.num_class):
                 # 获取某个数字类别所有的在盖类别内的聚类index
                 cluster_index_list = cls._get_cluster_index_list(data_class)
                 # 得到聚类的NI值的排名
