@@ -25,18 +25,26 @@ class ClusteredMNIST:
     loader = DataLoader(mnist, batch_size=len(mnist), num_workers=5)
     encoder = tv.models.resnet50(pretrained=True)
 
-    def __init__(self):
-        pass
+    @classmethod
+    def t(cls):
+        """
+        For test
+        :return:
+        """
+        a = cls._get_coding(0)
 
     @classmethod
-    def _get_data_index_list(cls, data_class):
+    def _get_data_index_list(cls, data_class, num_class=10):
         """
         获取某个数字的index列表
         :param _class:
         :return:
         """
-        index_lists = [[] for _ in range(10)]
-        for idx, label in enumerate(cls.mnist.targets.numpy().tolist()):
+        index_lists = [[] for _ in range(num_class)]
+
+        _, label = next(cls.loader.__iter__())
+        label = label.squeeze()
+        for idx, label in enumerate(label.tolist()):
             index_lists[label].append(idx)
         return index_lists[data_class]
 
@@ -345,4 +353,4 @@ class ColoredMNIST:
                 img.save(f'{data_dir}/{name}')
 
 
-# ColoredMNIST.mnist_diversity2file()
+ClusteredMNIST.t()
