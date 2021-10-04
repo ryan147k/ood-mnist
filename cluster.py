@@ -26,6 +26,7 @@ class ClusteredMNIST:
     encoder = tv.models.resnet50(pretrained=True)
 
     num_class = 10
+    num_cluster = 5
 
     @classmethod
     def t(cls):
@@ -78,22 +79,12 @@ class ClusteredMNIST:
         pickle.dump(coding_list, open('./count/coding_list.pkl', 'wb'))
 
     @classmethod
-    def tsne2pkl(cls):
-        tsne_list = []
-        coding_list = pickle.load(open('./count/coding_list.pkl', 'rb'))
-        for data_class in tqdm(range(cls.num_class)):
-            coding = coding_list[data_class]
-            coding = TSNE(n_components=5, n_jobs=20, random_state=2).fit_transform(coding)
-            tsne_list.append(coding)
-        pickle.dump(tsne_list, open('./count/tsne_list.pkl', 'wb'))
-
-    @classmethod
     def kmeans2pkl(cls):
         coding_list = pickle.load(open('./count/coding_list.pkl', 'rb'))
         cluster_list = []
         for data_class in tqdm(range(cls.num_class)):
             coding = coding_list[data_class]
-            cluster = KMeans(n_clusters=5, random_state=2).fit(coding)
+            cluster = KMeans(n_clusters=cls.num_cluster, random_state=2).fit(coding)
             cluster_list.append(cluster)
         pickle.dump(cluster_list, open('./count/cluster_list.pkl', 'wb'))
 
@@ -107,7 +98,7 @@ class ClusteredMNIST:
         cluster_list = pickle.load(open('./count/cluster_list.pkl', 'rb'))
         cluster = cluster_list[data_class]
 
-        index_list = [[]for _ in range(5)]
+        index_list = [[]for _ in range(cls.num_cluster)]
         for i, v in enumerate(cluster.labels_):
             index_list[v].append(i)
         return index_list
@@ -166,7 +157,7 @@ class ClusteredMNIST:
             return s
 
         root = './dataset/mnist_clustered'
-        for num_cluster in tqdm(range(5)):
+        for num_cluster in tqdm(range(cls.num_cluster)):
             data_dir = f'{root}/{str(num_cluster)}'
             if not os.path.exists(data_dir):
                 os.mkdir(data_dir)
