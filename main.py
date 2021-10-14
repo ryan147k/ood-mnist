@@ -436,27 +436,29 @@ class Experiment:
 
     @classmethod
     def ex4(cls, _train=False):
+        args.batch_size = 1024
         print(args)
 
         ex_name = 'ex4'
         save_dir = './ckpts/ex4'
         cls._mkdir(save_dir)
 
-        model = models.mobilenet_v2(num_classes=10)
-        model_name = 'mobilenet_v2'
+        model = models.resnet34(num_classes=10)
+        model_name = 'resnet34'
 
         return cls._ex(_train, model, save_dir, model_name, ex_name, args.dataset_id)
 
     @classmethod
     def ex5(cls, _train=False):
+        args.batch_size = 1024
         print(args)
 
         ex_name = 'ex5'
         save_dir = './ckpts/ex5'
         cls._mkdir(save_dir)
 
-        model = models.mobilenet_v2(num_classes=10)
-        model_name = 'mobilenet_v2'
+        model = models.mobilenet_v3_small(num_classes=10)
+        model_name = 'mobilenet_v3_small'
 
         return cls._ex(_train, model, save_dir, model_name, ex_name, args.dataset_id)
 
@@ -466,7 +468,6 @@ class Experiment:
         获取整体测试结果
         :return:
         """
-        # TODO: 修改代码
         res = []
 
         for dataset_id in range(3):
@@ -474,10 +475,10 @@ class Experiment:
 
             acc_list = []
 
-            markers = ['-s', '-o', '-*', '-^', '-D', '-p']
-            models = ['ResNet18', 'AlexNet', 'Vgg11', 'DensNet121', 'SqueezeNet', 'ResNext50']
+            markers = ['-s', '-o', '-*', '-^', '-D']
+            models = ['ResNet18', 'SqueezeNet1.0', 'SqueezeNet1.1', 'ResNet34', 'MobileNet v3']
             titles = ['Distribution OOD', 'Correlation OOD', 'Diversity OOD']
-            for i, ex_num in enumerate([1, 2, 3, 4, 5, 6]):
+            for i, ex_num in enumerate([1, 2, 3, 4, 5]):
                 args.ex_num = str(ex_num)
                 ex_ = getattr(cls, f'ex{args.ex_num}')
                 acc = ex_(False)
@@ -500,9 +501,10 @@ if __name__ == '__main__':
     if args.debug is True:
         args.ex_num = '3'
         args.dataset_id = 2
-        os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+        os.environ['CUDA_VISIBLE_DEVICES'] = '3'
         _train = False
 
     ex = getattr(Experiment, f'ex{args.ex_num.strip()}')
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    ex(_train)
+    # ex(_train)
+    Experiment.test_()

@@ -25,9 +25,6 @@ class ClusteredMNIST:
     loader = DataLoader(mnist, batch_size=len(mnist), num_workers=5)
     encoder = tv.models.resnet50(pretrained=True)
 
-    num_class = 10
-    num_cluster = 5
-
     @classmethod
     def t(cls):
         """
@@ -37,13 +34,13 @@ class ClusteredMNIST:
         a = cls._get_coding(0)
 
     @classmethod
-    def _get_data_index_list(cls, data_class):
+    def _get_data_index_list(cls, data_class, num_class=10):
         """
         获取某个数字的index列表
         :param _class:
         :return:
         """
-        index_lists = [[] for _ in range(cls.num_class)]
+        index_lists = [[] for _ in range(num_class)]
 
         _, label = next(cls.loader.__iter__())
         label = label.squeeze()
@@ -73,18 +70,28 @@ class ClusteredMNIST:
     @classmethod
     def coding2pkl(cls):
         coding_list = []
-        for data_class in range(cls.num_class):
+        for data_class in range(10):
             coding = cls._get_coding(data_class)
             coding_list.append(coding)
         pickle.dump(coding_list, open('./count/coding_list.pkl', 'wb'))
 
     @classmethod
+    def tsne2pkl(cls):
+        tsne_list = []
+        coding_list = pickle.load(open('./count/coding_list.pkl', 'rb'))
+        for data_class in tqdm(range(10)):
+            coding = coding_list[data_class]
+            coding = TSNE(n_components=5, n_jobs=20, random_state=2).fit_transform(coding)
+            tsne_list.append(coding)
+        pickle.dump(tsne_list, open('./count/tsne_list.pkl', 'wb'))
+
+    @classmethod
     def kmeans2pkl(cls):
         coding_list = pickle.load(open('./count/coding_list.pkl', 'rb'))
         cluster_list = []
-        for data_class in tqdm(range(cls.num_class)):
+        for data_class in tqdm(range(10)):
             coding = coding_list[data_class]
-            cluster = KMeans(n_clusters=cls.num_cluster, random_state=2).fit(coding)
+            cluster = KMeans(n_clusters=5, random_state=2).fit(coding)
             cluster_list.append(cluster)
         pickle.dump(cluster_list, open('./count/cluster_list.pkl', 'wb'))
 
@@ -98,7 +105,7 @@ class ClusteredMNIST:
         cluster_list = pickle.load(open('./count/cluster_list.pkl', 'rb'))
         cluster = cluster_list[data_class]
 
-        index_list = [[]for _ in range(cls.num_cluster)]
+        index_list = [[]for _ in range(5)]
         for i, v in enumerate(cluster.labels_):
             index_list[v].append(i)
         return index_list
@@ -135,7 +142,7 @@ class ClusteredMNIST:
     @classmethod
     def print_ni_info(cls):
         ni_info_list = []
-        for data_class in range(cls.num_class):
+        for data_class in range(10):
             ni_info = cls._get_ni_info(data_class)
             print(ni_info)
             ni_info_list.append(ni_info)
@@ -157,13 +164,13 @@ class ClusteredMNIST:
             return s
 
         root = './dataset/mnist_clustered'
-        for num_cluster in tqdm(range(cls.num_cluster)):
+        for num_cluster in tqdm(range(5)):
             data_dir = f'{root}/{str(num_cluster)}'
             if not os.path.exists(data_dir):
                 os.mkdir(data_dir)
 
             count = 0
-            for data_class in range(cls.num_class):
+            for data_class in range(10):
                 # 获取某个数字类别所有的在盖类别内的聚类index
                 cluster_index_list = cls._get_cluster_index_list(data_class)
                 # 得到聚类的NI值的排名
@@ -346,4 +353,13 @@ class ColoredMNIST:
                 img.save(f'{data_dir}/{name}')
 
 
-ClusteredMNIST.t()
+def count():
+    res = pickle.load(open('./count/res_test.pkl', 'rb'))
+    ood0, ood1, ood2 = res[0], res[1], res[2]
+
+    for i, l in enumerate(ood2):
+        print(f"s{str(i + 1)} = {str(l).replace(',', ';')};")
+
+
+if __name__ == '__main__':
+    count()
