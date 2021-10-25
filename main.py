@@ -24,6 +24,7 @@ parser.add_argument('--debug', default=True)
 parser.add_argument('--ex_num', type=str)
 parser.add_argument('--dataset_type', type=int)
 parser.add_argument('--train_class', type=int)
+parser.add_argument('--test_classes', type=list, default=[])
 
 parser.add_argument('--batch_size', type=int, default=512)
 parser.add_argument('--lr', type=float, default=1e-4)
@@ -31,6 +32,8 @@ parser.add_argument('--weight_decay', type=float, default=1e-4)
 parser.add_argument('--epoch_num', type=int, default=100)
 parser.add_argument('--print_iter', type=int, default=20)
 args = parser.parse_args()
+
+device = None
 
 
 class RawMNIST(Dataset):
@@ -116,8 +119,8 @@ def train(model,
           test_datasets=None):
     # data
 
-    train_loader = DataLoader(train_dataset, shuffle=True, batch_size=args.batch_size, num_workers=5)
-    val_loader = DataLoader(val_dataset, shuffle=False, batch_size=args.batch_size, num_workers=5)
+    train_loader = DataLoader(train_dataset, shuffle=True, batch_size=args.batch_size, num_workers=3)
+    val_loader = DataLoader(val_dataset, shuffle=False, batch_size=args.batch_size, num_workers=3)
     if test_datasets is None:
         test_loaders = []
     else:
@@ -418,7 +421,7 @@ class Experiment:
         model_name = 'res18'
 
         return cls._ex(_train, model, save_dir, model_name, ex_name,
-                       args.dataset_type, args.train_class, test_class_list=[args.train_class + 3])
+                       args.dataset_type, args.train_class, test_class_list=args.test_classes)
 
     @classmethod
     def ex2(cls, _train=False):
@@ -433,7 +436,7 @@ class Experiment:
         model_name = 'squeezenet1_0'
 
         return cls._ex(_train, model, save_dir, model_name, ex_name,
-                       args.dataset_type, args.train_class, test_class_list=[args.train_class + 3])
+                       args.dataset_type, args.train_class, test_class_list=args.test_classes)
 
     @classmethod
     def ex3(cls, _train=False):
@@ -448,7 +451,7 @@ class Experiment:
         model_name = 'squeezenet1_1'
 
         return cls._ex(_train, model, save_dir, model_name, ex_name,
-                       args.dataset_type, args.train_class, test_class_list=[args.train_class + 3])
+                       args.dataset_type, args.train_class, test_class_list=args.test_classes)
 
     @classmethod
     def ex4(cls, _train=False):
@@ -463,7 +466,7 @@ class Experiment:
         model_name = 'resnet34'
 
         return cls._ex(_train, model, save_dir, model_name, ex_name,
-                       args.dataset_type, args.train_class, test_class_list=[args.train_class + 3])
+                       args.dataset_type, args.train_class, test_class_list=args.test_classes)
 
     @classmethod
     def ex5(cls, _train=False):
@@ -478,43 +481,44 @@ class Experiment:
         model_name = 'mobilenet_v3_small'
 
         return cls._ex(_train, model, save_dir, model_name, ex_name,
-                       args.dataset_type, args.train_class, test_class_list=[args.train_class + 3])
+                       args.dataset_type, args.train_class, test_class_list=args.test_classes)
 
-    @classmethod
-    def test_(cls):
+
+def tst():
+    def _tst():
         """
         获取整体测试结果
         :return:
         """
         import csv
+        global device
+        os.environ["CUDA_VISIBLE_DEVICES"] = "4"
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
         models = ['ResNet18', 'SqueezeNet1.0', 'SqueezeNet1.1', 'ResNet34', 'MobileNet v3']
         acc_list = []
 
         for i, ex_num in enumerate([1, 2, 3, 4, 5]):
             args.ex_num = str(ex_num)
-            args.dataset_type = 0
+            args.dataset_type = 3
 
-            acc_list.append([])
+            for _class in range(0, 1):
+                args.train_class = _class  # 训练类
+                args.test_classes = list(range(1, 7))  # 测试类
 
-            for _class in range(1, 4):
-                args.train_class = _class
-                ex_ = getattr(cls, f'ex{args.ex_num}')
-                iid_acc, ood_acc = ex_(False)
-                acc_list[i].append(iid_acc)
-                acc_list[i].append(ood_acc)
+                ex_ = getattr(Experiment, f'ex{args.ex_num}')
+                acc = ex_(False)
+                acc_list.append(acc)
 
-        csv.writer(open('./count/test_result.csv', 'w')).writerows(acc_list)
+        csv.writer(open('./count/cluster_result.csv', 'w')).writerows(acc_list)
+
+    _tst()
 
 
 if __name__ == '__main__':
-    _train = True
-    if args.debug is True:
-        args.ex_num = '3'
-        args.dataset_type = 2
-        os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-        _train = False
-
-    ex = getattr(Experiment, f'ex{args.ex_num.strip()}')
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # ex(_train)
-    # Experiment.test_()
+    if args.debug is not True:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        ex = getattr(Experiment, f'ex{args.ex_num.strip()}')
+        ex(_train=True)
+    else:
+        tst()
