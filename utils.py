@@ -1,7 +1,11 @@
 import torch
+from torch.utils.data import DataLoader
+import torchvision.models as models
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
 import numpy as np
+import os
+from main import ShiftedMNIST
 
 
 def get_input_grad(model, input):
@@ -41,7 +45,7 @@ def get_confusion_matrix(model, loader, device):
 
     for batch_x, batch_y in loader:
         batch_x = batch_x.to(device)
-        batch_y = batch_y.to(device)
+        batch_y = batch_y.to(device).squeeze()
 
         # forward
         pred = model(batch_x)
@@ -50,3 +54,13 @@ def get_confusion_matrix(model, loader, device):
         all_pred = torch.cat((all_pred, pred), dim=0)
         all_label = torch.cat((all_label, batch_y), dim=0)
     return confusion_matrix(all_label.cpu(), all_pred.cpu())
+
+
+if __name__ == '__main__':
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    model = models.resnet18(num_classes=10)
+    model.load_state_dict(torch.load('./ckpts/ex1/d0c2_res18_best.pt'))
+    loader = DataLoader(ShiftedMNIST(_class=5), batch_size=128)
+    plot_confusion_matrix(get_confusion_matrix(model=model, loader=loader, device=device))

@@ -4,26 +4,66 @@
 # DATE: 2021/9/27 9:32
 # DESCRIPTION:
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
 import torchvision as tv
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 import numpy as np
 from sklearn.cluster import KMeans
-from MulticoreTSNE import MulticoreTSNE as TSNE
 from sklearn.decomposition import PCA
-from collections import Counter
 import matplotlib.pyplot as plt
 import pickle
 from tqdm import tqdm
 import os
+import random
 from PIL import Image
+from collections import Counter
 
 
-class ClusteredMNIST:
-    mnist = datasets.MNIST(root='../dataset', transform=transforms.ToTensor())
-    loader = DataLoader(mnist, batch_size=len(mnist), num_workers=5)
+class RawMNIST(Dataset):
+    """
+    根据_class选出某个类别的数字
+    """
+    def __init__(self, _class, root='./dataset/mnist_shift/0'):
+        super(RawMNIST, self).__init__()
+
+        self._class = _class
+        self.root = root
+        self.imgs = []
+        for filename in os.listdir(self.root):
+            if f'{str(_class)}_' in filename:
+                self.imgs.append(filename)
+
+        self.transform = transforms.ToTensor()
+
+    def __getitem__(self, index):
+        img_path = f'{self.root}/{self.imgs[index]}'
+
+        with open(img_path, 'rb') as f:
+            img = Image.open(f)
+            data = self.transform(img)
+            return torch.Tensor(data), torch.LongTensor([self._class])
+
+    def __len__(self):
+        return len(self.imgs)
+
+    @staticmethod
+    def _num2str(num):
+        """
+        数字转字符串 eg. 123 -> '000123'
+        :return:
+        """
+        s = str(num)
+        for _ in range(6 - len(str(num))):
+            s = '0' + s
+        return s
+
+
+class ClusterMNIST:
     encoder = tv.models.resnet50(pretrained=True)
+
+    num_class = 10
+    num_cluster = 8
 
     @classmethod
     def t(cls):
@@ -34,122 +74,93 @@ class ClusteredMNIST:
         a = cls._get_coding(0)
 
     @classmethod
-    def _get_data_index_list(cls, data_class, num_class=10):
-        """
-        获取某个数字的index列表
-        :param _class:
-        :return:
-        """
-        index_lists = [[] for _ in range(num_class)]
-
-        _, label = next(cls.loader.__iter__())
-        label = label.squeeze()
-        for idx, label in enumerate(label.tolist()):
-            index_lists[label].append(idx)
-        return index_lists[data_class]
-
-    @classmethod
     def _get_coding(cls, data_class):
         def _hook(module, input, output):
-            coding.append(input[0].cpu().detach())
+            hook_res.append(input[0].cpu().detach())
 
-        index_list = cls._get_data_index_list(data_class)
+        def _forward(model, dataset):
+            with torch.no_grad():
+                device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+                model = model.to(device)
+                loader = DataLoader(dataset, batch_size=128, num_workers=10)
+                for data, _ in loader:
+                    data = data.to(device)
+                    model(data)  # TODO: batch_size太大, 直接放内存放不下
 
-        data, label = next(cls.loader.__iter__())
-        data, label = data.squeeze()[index_list], label[index_list]  # 取出某个数字的数据
+        mnist = RawMNIST(_class=data_class)
 
-        data = torch.stack((data, data, data), dim=-1).squeeze()  # grad -> rgb
-        data = data.permute((0, 3, 1, 2))
-
-        coding = []  # 用于接收钩子函数的输出
+        hook_res = []  # 用于接收钩子函数的输出
         cls.encoder.fc.register_forward_hook(_hook)
-        cls.encoder(data)
+        _forward(cls.encoder, mnist)
 
-        return coding[0]
+        coding = torch.cat(hook_res, dim=0)
+
+        return coding
+
+    @classmethod
+    def plot_pca_coding(cls):
+        coding_list = []
+        label_list = []
+        for i in range(cls.num_class):
+            coding = cls._get_coding(i)
+            label = torch.zeros(len(coding)) + i
+            coding_list.append(coding)
+            label_list.append(label)
+        coding = torch.cat(coding_list, dim=0)
+        label = torch.cat(label_list, dim=0)
+
+        coding = PCA(n_components=2, random_state=2).fit_transform(coding)
+
+        index_list = range(len(coding))
+        random.seed(2)
+        index_list = random.sample(index_list, 1000)
+        coding = coding[index_list]
+        label = label[index_list]
+
+        label = label.numpy().tolist()
+        plt.scatter(coding[:, 0], coding[:, 1], c=label, cmap='rainbow')
+        plt.show()
 
     @classmethod
     def coding2pkl(cls):
         coding_list = []
-        for data_class in range(10):
+        for data_class in range(cls.num_class):
             coding = cls._get_coding(data_class)
             coding_list.append(coding)
         pickle.dump(coding_list, open('./count/coding_list.pkl', 'wb'))
 
     @classmethod
-    def tsne2pkl(cls):
-        tsne_list = []
-        coding_list = pickle.load(open('./count/coding_list.pkl', 'rb'))
-        for data_class in tqdm(range(10)):
-            coding = coding_list[data_class]
-            coding = TSNE(n_components=5, n_jobs=20, random_state=2).fit_transform(coding)
-            tsne_list.append(coding)
-        pickle.dump(tsne_list, open('./count/tsne_list.pkl', 'wb'))
-
-    @classmethod
-    def kmeans2pkl(cls):
+    def kmeans2pkl(cls, random_state=2):
         coding_list = pickle.load(open('./count/coding_list.pkl', 'rb'))
         cluster_list = []
-        for data_class in tqdm(range(10)):
+        for data_class in tqdm(range(cls.num_class)):
             coding = coding_list[data_class]
-            cluster = KMeans(n_clusters=5, random_state=2).fit(coding)
+            cluster = KMeans(n_clusters=cls.num_cluster, random_state=random_state).fit(coding)
             cluster_list.append(cluster)
-        pickle.dump(cluster_list, open('./count/cluster_list.pkl', 'wb'))
+        pickle.dump(cluster_list, open('./count/kmeans_list.pkl', 'wb'))
 
     @classmethod
-    def _get_cluster_index_list(cls, data_class):
+    def print_kmeans_info(cls):
+        kmeans_list = pickle.load(open('./count/kmeans_list.pkl', 'rb'))
+        for i in range(cls.num_class):
+            kmeans = kmeans_list[i]
+            count = Counter(kmeans.labels_)
+            print(count)
+
+    @classmethod
+    def _sort(cls):
         """
-        获取某个类别聚类后的index列表
-        :param _class:
-        :return:
+        根据kmeans聚类结果, 对每个data_class的聚类按照 聚类大小 排序
+        :return: res[i][j] eg. res[0][0]=3 数字0聚类后最大的聚类是标号3的簇
         """
-        cluster_list = pickle.load(open('./count/cluster_list.pkl', 'rb'))
-        cluster = cluster_list[data_class]
-
-        index_list = [[]for _ in range(5)]
-        for i, v in enumerate(cluster.labels_):
-            index_list[v].append(i)
-        return index_list
-
-    @classmethod
-    def _get_ni_info(cls, data_class):
-        def _ni_index(cluster_0, cluster_1):
-            cluster_0 = cluster_0.numpy()
-            cluster_1 = cluster_1.numpy()
-            mean_0 = np.mean(cluster_0, axis=0)
-            mean_1 = np.mean(cluster_1, axis=0)
-            std = np.std(np.concatenate((cluster_0, cluster_1), axis=0))
-            z = (mean_0 - mean_1) / std
-            ni = np.linalg.norm(z)
-            return ni
-
-        coding_list = pickle.load(open('./count/coding_list.pkl', 'rb'))
-        coding = coding_list[data_class]
-
-        cluster_index_list = cls._get_cluster_index_list(data_class)
-
-        coding_basic_cluster = coding[cluster_index_list[0]]
-
-        ni_list = []
-        for cluster_index in cluster_index_list:
-            coding_compared_cluster = coding[cluster_index]
-            ni = _ni_index(coding_basic_cluster, coding_compared_cluster)
-            ni_list.append(ni)
-
-        ni_rank = sorted(range(len(ni_list)), key=lambda k: ni_list[k])
-        ni_list = sorted(ni_list)
-        return ni_list, ni_rank
-
-    @classmethod
-    def print_ni_info(cls):
-        ni_info_list = []
-        for data_class in range(10):
-            ni_info = cls._get_ni_info(data_class)
-            print(ni_info)
-            ni_info_list.append(ni_info)
-
-        ni, _ = zip(*ni_info_list)
-        ni = np.array(ni)
-        print(np.mean(ni, axis=0).tolist())  # [ 0.0, 9.22905, 11.084345, 12.117267, 14.091411]
+        res = []
+        kmeans_list = pickle.load(open('./count/kmeans_list.pkl', 'rb'))
+        for i in range(cls.num_class):
+            kmeans = kmeans_list[i]
+            count = Counter(kmeans.labels_)
+            keys, _ = zip(*count.most_common())
+            res.append(keys)
+        return res
 
     @classmethod
     def mnist2file(cls):
@@ -164,35 +175,32 @@ class ClusteredMNIST:
             return s
 
         root = './dataset/mnist_clustered'
-        for num_cluster in tqdm(range(5)):
+        ranks = cls._sort()
+        kmeans_list = pickle.load(open('./count/kmeans_list.pkl', 'rb'))
+
+        for num_cluster in tqdm(range(cls.num_cluster)):
             data_dir = f'{root}/{str(num_cluster)}'
             if not os.path.exists(data_dir):
                 os.mkdir(data_dir)
 
             count = 0
-            for data_class in range(10):
-                # 获取某个数字类别所有的在盖类别内的聚类index
-                cluster_index_list = cls._get_cluster_index_list(data_class)
-                # 得到聚类的NI值的排名
-                _, rank = cls._get_ni_info(data_class)
-                cluster_index = cluster_index_list[rank[num_cluster]]
-                # 该聚类对应的data index
-                data_index = np.array(cls._get_data_index_list(data_class))[cluster_index].tolist()
+            for data_class in range(cls.num_class):
+                kmeans = kmeans_list[data_class]
+                rk = ranks[data_class][num_cluster]  # 对于dataclass这个类别, 放到num_cluster文件夹里面的应该是第rk个聚类
 
-                data, label = next(cls.loader.__iter__())
-                data, label = data.squeeze()[data_index], label[data_index]
-                data = torch.stack((data, data, data), dim=-1)
-                data = data.permute((0, 3, 1, 2))
+                dataset = RawMNIST(_class=data_class)
+                for i in range(len(dataset)):
 
-                for img, label in zip(data, label):
-                    img = transforms.ToPILImage()(img)
-                    name = f'{str(int(label))}_{_num2str(count + 1)}.jpg'
-                    img.save(os.path.join(root, f'{str(num_cluster)}/{name}'))
-                    count += 1
-                print(count)
+                    if kmeans.labels_[i] == rk:
+                        img, label = dataset[i]
+                        img = transforms.ToPILImage()(img)
+                        name = f'{str(int(label))}_{_num2str(count + 1)}.jpg'
+                        img.save(os.path.join(root, f'{str(num_cluster)}/{name}'))
+                        count += 1
+            print(count)
 
 
-class ColoredMNIST:
+class ColorMNIST:
     """
     生成数据集: 每张图片的像素值在[0, 1]之间, 大小为[batch_size, height, width, channel]
     """
@@ -212,30 +220,24 @@ class ColoredMNIST:
         :return:
         """
         assert img.ndim == 2
-        assert c in ['red', 'r', 'yellow', 'y', 'green', 'g', 'cyan', 'c', 'blue', 'b']
+        assert c in ['r', 'r', 'y', 'y', 'g', 'g', 'b', 'b']
 
         dtype = img.dtype
         h, w = img.shape
         arr = np.reshape(img, [h, w, 1])
-        if c == 'red' or c == 'r':
+        if c == 'r' or c == 'r':
             arr = np.concatenate([arr,
                                   np.zeros((h, w, 1), dtype=dtype),
                                   np.zeros((h, w, 1), dtype=dtype)], axis=2)
-        elif c == 'yellow' or c == 'y':
+        elif c == 'y' or c == 'y':
             arr = np.concatenate([arr,
                                   arr,
                                   np.zeros((h, w, 1), dtype=dtype)], axis=2)
-        elif c == 'green' or c == 'g':
+        elif c == 'g' or c == 'g':
             arr = np.concatenate([np.zeros((h, w, 1), dtype=dtype),
                                   arr,
                                   np.zeros((h, w, 1), dtype=dtype)], axis=2)
-
-        elif c == 'cyan' or c == 'c':
-            arr = np.concatenate([np.zeros((h, w, 1), dtype=dtype),
-                                  arr,
-                                  arr], axis=2)
-
-        elif c == 'blue' or c == 'b':
+        elif c == 'b' or c == 'b':
             arr = np.concatenate([np.zeros((h, w, 1), dtype=dtype),
                                   np.zeros((h, w, 1), dtype=dtype),
                                   arr], axis=2)
@@ -254,6 +256,270 @@ class ColoredMNIST:
         return s
 
     @classmethod
+    def _imgs2file(cls, imgs, color, labels, data_dir):
+        """
+        将图片上色并输出到文件
+        :param imgs:
+        :param color:
+        :param labels:
+        :param data_dir:
+        :return:
+        """
+        if not os.path.exists(data_dir):
+            os.mkdir(data_dir)
+
+        imgs = np.array(imgs).squeeze()
+        color = np.array(color).squeeze()
+        labels = np.array(labels).squeeze()
+
+        for i, (img, c, label) in enumerate(zip(imgs, color, labels)):
+            img = cls._color_img(img, c)
+            img = img.transpose((2, 0, 1))
+            img = torch.from_numpy(img)
+            img = transforms.ToPILImage()(img)
+
+            name = f'{str(int(label))}_{cls._num2str(i + 1)}.jpg'
+            img.save(f'{data_dir}/{name}')
+
+    @classmethod
+    def mnist_shift2file(cls):
+        root = './dataset/mnist_shift'
+
+        data = cls.data.squeeze()
+        labels = cls.labels
+
+        colors = []
+        for label in range(10):
+            len_c = len(labels[labels == label])
+            len1_4 = int(len_c / 4)
+            color = ['r'] * len1_4 + ['y'] * len1_4 + ['g'] * len1_4 + ['b'] * (len_c - len1_4 * 3)
+            colors.append(np.array(color))
+
+        # origin
+
+        data_dir = f'{root}/0'
+        imgs, img_colors, img_labels = None, None, None
+        for label in range(10):
+            data_c = data[labels == label].numpy()
+            color_c = colors[label]
+            labels_c = np.array([label] * len(data_c))
+
+            imgs = data_c if imgs is None \
+                else np.concatenate((imgs, data_c), axis=0)
+            img_colors = color_c if img_colors is None \
+                else np.concatenate((img_colors, color_c), axis=0)
+            img_labels = labels_c if img_labels is None \
+                else np.concatenate((img_labels, labels_c), axis=0)
+
+        cls._imgs2file(imgs, img_colors, img_labels, data_dir)
+
+        # marginal
+
+        # 0-9 r&y
+        data_dir = f'{root}/1'
+        imgs, img_colors, img_labels = None, None, None
+        for label in range(10):
+            color = colors[label]
+            data_c = data[labels == label]  # 某个类别的数据
+
+            index = np.array(color == 'r') + np.array(color == 'y')
+
+            data_c = data_c[index]
+            color_c = color[index]
+            labels_c = [label] * len(data_c)
+
+            imgs = data_c if imgs is None \
+                else np.concatenate((imgs, data_c), axis=0)
+            img_colors = color_c if img_colors is None \
+                else np.concatenate((img_colors, color_c), axis=0)
+            img_labels = labels_c if img_labels is None \
+                else np.concatenate((img_labels, labels_c), axis=0)
+
+        cls._imgs2file(imgs, img_colors, img_labels, data_dir)
+
+        # 0-9 g&b
+        data_dir = f'{root}/4'
+        imgs, img_colors, img_labels = None, None, None
+        for label in range(10):
+            color = colors[label]
+            data_c = data[labels == label]  # 某个类别的数据
+
+            index = np.array(color == 'g') + np.array(color == 'b')
+
+            data_c = data_c[index]
+            color_c = color[index]
+            labels_c = [label] * len(data_c)
+
+            imgs = data_c if imgs is None \
+                else np.concatenate((imgs, data_c), axis=0)
+            img_colors = color_c if img_colors is None \
+                else np.concatenate((img_colors, color_c), axis=0)
+            img_labels = labels_c if img_labels is None \
+                else np.concatenate((img_labels, labels_c), axis=0)
+
+        cls._imgs2file(imgs, img_colors, img_labels, data_dir)
+
+        # conditional
+
+        # 0-4 r&y 5-9 g&b
+        data_dir = f'{root}/2'
+        imgs, img_colors, img_labels = None, None, None
+        for label in range(5):
+            color = colors[label]
+            data_c = data[labels == label]  # 某个类别的数据
+
+            index = np.array(color == 'r') + np.array(color == 'y')
+
+            data_c = data_c[index]
+            color_c = color[index]
+            labels_c = [label] * len(data_c)
+
+            imgs = data_c if imgs is None \
+                else np.concatenate((imgs, data_c), axis=0)
+            img_colors = color_c if img_colors is None \
+                else np.concatenate((img_colors, color_c), axis=0)
+            img_labels = labels_c if img_labels is None \
+                else np.concatenate((img_labels, labels_c), axis=0)
+
+        for label in range(5, 10):
+            color = colors[label]
+            data_c = data[labels == label]  # 某个类别的数据
+
+            index = np.array(color == 'g') + np.array(color == 'b')
+
+            data_c = data_c[index]
+            color_c = color[index]
+            labels_c = [label] * len(data_c)
+
+            imgs = data_c if imgs is None \
+                else np.concatenate((imgs, data_c), axis=0)
+            img_colors = color_c if img_colors is None \
+                else np.concatenate((img_colors, color_c), axis=0)
+            img_labels = labels_c if img_labels is None \
+                else np.concatenate((img_labels, labels_c), axis=0)
+
+        cls._imgs2file(imgs, img_colors, img_labels, data_dir)
+
+        # 0-4 g&b 5-9 r&y
+        data_dir = f'{root}/5'
+        imgs, img_colors, img_labels = None, None, None
+        for label in range(5):
+            color = colors[label]
+            data_c = data[labels == label]  # 某个类别的数据
+
+            index = np.array(color == 'g') + np.array(color == 'b')
+
+            data_c = data_c[index]
+            color_c = color[index]
+            labels_c = [label] * len(data_c)
+
+            imgs = data_c if imgs is None \
+                else np.concatenate((imgs, data_c), axis=0)
+            img_colors = color_c if img_colors is None \
+                else np.concatenate((img_colors, color_c), axis=0)
+            img_labels = labels_c if img_labels is None \
+                else np.concatenate((img_labels, labels_c), axis=0)
+
+        for label in range(5, 10):
+            color = colors[label]
+            data_c = data[labels == label]  # 某个类别的数据
+
+            index = np.array(color == 'r') + np.array(color == 'y')
+
+            data_c = data_c[index]
+            color_c = color[index]
+            labels_c = [label] * len(data_c)
+
+            imgs = data_c if imgs is None \
+                else np.concatenate((imgs, data_c), axis=0)
+            img_colors = color_c if img_colors is None \
+                else np.concatenate((img_colors, color_c), axis=0)
+            img_labels = labels_c if img_labels is None \
+                else np.concatenate((img_labels, labels_c), axis=0)
+
+        cls._imgs2file(imgs, img_colors, img_labels, data_dir)
+
+        # joint
+
+        # 0-4 r&y 5-9 y&g
+        data_dir = f'{root}/3'
+        imgs, img_colors, img_labels = None, None, None
+        for label in range(5):
+            color = colors[label]
+            data_c = data[labels == label]  # 某个类别的数据
+
+            index = np.array(color == 'r') + np.array(color == 'y')
+
+            data_c = data_c[index]
+            color_c = color[index]
+            labels_c = [label] * len(data_c)
+
+            imgs = data_c if imgs is None \
+                else np.concatenate((imgs, data_c), axis=0)
+            img_colors = color_c if img_colors is None \
+                else np.concatenate((img_colors, color_c), axis=0)
+            img_labels = labels_c if img_labels is None \
+                else np.concatenate((img_labels, labels_c), axis=0)
+
+        for label in range(5, 10):
+            color = colors[label]
+            data_c = data[labels == label]  # 某个类别的数据
+
+            index = np.array(color == 'y') + np.array(color == 'g')
+
+            data_c = data_c[index]
+            color_c = color[index]
+            labels_c = [label] * len(data_c)
+
+            imgs = data_c if imgs is None \
+                else np.concatenate((imgs, data_c), axis=0)
+            img_colors = color_c if img_colors is None \
+                else np.concatenate((img_colors, color_c), axis=0)
+            img_labels = labels_c if img_labels is None \
+                else np.concatenate((img_labels, labels_c), axis=0)
+
+        cls._imgs2file(imgs, img_colors, img_labels, data_dir)
+
+        # 0-4 g&b 5-9 r&b
+        data_dir = f'{root}/6'
+        imgs, img_colors, img_labels = None, None, None
+        for label in range(5):
+            color = colors[label]
+            data_c = data[labels == label]  # 某个类别的数据
+
+            index = np.array(color == 'g') + np.array(color == 'b')
+
+            data_c = data_c[index]
+            color_c = color[index]
+            labels_c = [label] * len(data_c)
+
+            imgs = data_c if imgs is None \
+                else np.concatenate((imgs, data_c), axis=0)
+            img_colors = color_c if img_colors is None \
+                else np.concatenate((img_colors, color_c), axis=0)
+            img_labels = labels_c if img_labels is None \
+                else np.concatenate((img_labels, labels_c), axis=0)
+
+        for label in range(5, 10):
+            color = colors[label]
+            data_c = data[labels == label]  # 某个类别的数据
+
+            index = np.array(color == 'r') + np.array(color == 'b')
+
+            data_c = data_c[index]
+            color_c = color[index]
+            labels_c = [label] * len(data_c)
+
+            imgs = data_c if imgs is None \
+                else np.concatenate((imgs, data_c), axis=0)
+            img_colors = color_c if img_colors is None \
+                else np.concatenate((img_colors, color_c), axis=0)
+            img_labels = labels_c if img_labels is None \
+                else np.concatenate((img_labels, labels_c), axis=0)
+
+        cls._imgs2file(imgs, img_colors, img_labels, data_dir)
+
+    @classmethod
     def mnist_diversity2file(cls):
         np.random.seed(2)
 
@@ -269,7 +535,7 @@ class ColoredMNIST:
             labels = cls.labels[start: start + 12000]
 
             for idx, (img, label) in tqdm(enumerate(zip(data, labels))):
-                color = 'red'
+                color = 'r'
 
                 p = np.random.uniform()
 
@@ -277,28 +543,28 @@ class ColoredMNIST:
                     pass
                 elif i == 1:
                     if 1/2 <= p:
-                        color = 'green'
+                        color = 'g'
                 elif i == 2:
                     if 1/3 <= p < 2/3:
-                        color = 'green'
+                        color = 'g'
                     elif 2/3 <= p:
-                        color = 'yellow'
+                        color = 'y'
                 elif i == 3:
                     if 1/4 <= p < 2/4:
-                        color = 'green'
+                        color = 'g'
                     elif 2/4 <= p < 3/4:
-                        color = 'yellow'
+                        color = 'y'
                     elif 3/4 <= p:
                         color = 'cyan'
                 else:
                     if 1/5 <= p < 2/5:
-                        color = 'green'
+                        color = 'g'
                     elif 2/5 <= p < 3/5:
-                        color = 'yellow'
+                        color = 'y'
                     elif 3/5 <= p < 4/5:
                         color = 'cyan'
                     elif 4/5 <= p:
-                        color = 'blue'
+                        color = 'b'
 
                 img = cls._color_img(img.squeeze().numpy(), color)
                 img = img.transpose((2, 0, 1))
@@ -324,8 +590,8 @@ class ColoredMNIST:
             labels = cls.labels[start: start + 12000]
 
             for idx, (img, label) in tqdm(enumerate(zip(data, labels))):
-                color = 'red' if int(label) < 5 else 'green'
-                color_opp = 'green' if int(label) < 5 else 'red'
+                color = 'r' if int(label) < 5 else 'g'
+                color_opp = 'g' if int(label) < 5 else 'r'
 
                 if i == 0:
                     # 20% in the first training environment
@@ -353,13 +619,5 @@ class ColoredMNIST:
                 img.save(f'{data_dir}/{name}')
 
 
-def count():
-    res = pickle.load(open('./count/res_test.pkl', 'rb'))
-    ood0, ood1, ood2 = res[0], res[1], res[2]
-
-    for i, l in enumerate(ood2):
-        print(f"s{str(i + 1)} = {str(l).replace(',', ';')};")
-
-
 if __name__ == '__main__':
-    count()
+    ClusterMNIST.mnist2file()
