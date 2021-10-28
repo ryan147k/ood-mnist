@@ -38,6 +38,7 @@ def plot_confusion_matrix(confusion_mat):
 
 @torch.no_grad()
 def get_confusion_matrix(model, loader, device):
+    model.eval()
     model = torch.nn.DataParallel(model)
     model = model.to(device)
     all_pred = torch.tensor([]).to(device)
@@ -48,19 +49,24 @@ def get_confusion_matrix(model, loader, device):
         batch_y = batch_y.to(device).squeeze()
 
         # forward
-        pred = model(batch_x)
-        _, pred = torch.max(pred, dim=1)
+        y_hat = model(batch_x)
+        _, pred = y_hat.max(1)
 
         all_pred = torch.cat((all_pred, pred), dim=0)
         all_label = torch.cat((all_label, batch_y), dim=0)
+
+    num_correct = torch.sum(all_pred == all_label).item()
+    acc = num_correct / len(all_label)
+    print(acc)
+
     return confusion_matrix(all_label.cpu(), all_pred.cpu())
 
 
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '5'
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     model = models.resnet18(num_classes=10)
-    model.load_state_dict(torch.load('./ckpts/ex1/d0c2_res18_best.pt'))
-    loader = DataLoader(ShiftedMNIST(_class=5), batch_size=128)
-    plot_confusion_matrix(get_confusion_matrix(model=model, loader=loader, device=device))
+    model.load_state_dict(torch.load('./ckpts/ex1/d0c3_res18_best.pt'))
+    loader = DataLoader(ShiftedMNIST(_class=6), batch_size=128, num_workers=3)
+    plot_confusion_matrix(get_confusion_matrix(model, loader, device))

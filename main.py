@@ -24,12 +24,13 @@ parser.add_argument('--debug', default=True)
 parser.add_argument('--ex_num', type=str)
 parser.add_argument('--dataset_type', type=int)
 parser.add_argument('--train_class', type=int)
-parser.add_argument('--test_classes', type=list, default=[])
+parser.add_argument('--test_classes', type=list)
 
+parser.add_argument('--num_workers', type=int, default=12)
 parser.add_argument('--batch_size', type=int, default=512)
 parser.add_argument('--lr', type=float, default=1e-4)
 parser.add_argument('--weight_decay', type=float, default=1e-4)
-parser.add_argument('--epoch_num', type=int, default=100)
+parser.add_argument('--epoch_num', type=int, default=200)
 parser.add_argument('--print_iter', type=int, default=20)
 args = parser.parse_args()
 
@@ -112,19 +113,20 @@ class ClusteredMNIST(RawMNIST):
 
 
 def train(model,
-          save_path: str,
+          save_dir: str,
+          model_name: str,
           ex_name: str,
           train_dataset,
           val_dataset,
           test_datasets=None):
     # data
 
-    train_loader = DataLoader(train_dataset, shuffle=True, batch_size=args.batch_size, num_workers=3)
-    val_loader = DataLoader(val_dataset, shuffle=False, batch_size=args.batch_size, num_workers=3)
+    train_loader = DataLoader(train_dataset, shuffle=True, batch_size=args.batch_size, num_workers=args.num_workers)
+    val_loader = DataLoader(val_dataset, shuffle=False, batch_size=args.batch_size, num_workers=args.num_workers)
     if test_datasets is None:
         test_loaders = []
     else:
-        test_loaders = [DataLoader(dataset, shuffle=False, batch_size=args.batch_size, num_workers=2)
+        test_loaders = [DataLoader(dataset, shuffle=False, batch_size=args.batch_size, num_workers=args.num_workers)
                         for dataset in test_datasets]
 
     # model
@@ -138,7 +140,7 @@ def train(model,
     optimizer = torch.optim.Adam(params=model.parameters(),
                                  lr=args.lr,
                                  weight_decay=args.weight_decay)
-    lr_scheduler = lambda x: 1.0 if x < 15 else 0.5
+    lr_scheduler = lambda x: 1.0 if x < 30 else 0.8
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_scheduler)
 
     # train
@@ -146,7 +148,7 @@ def train(model,
     best_val_acc, best_val_iter = 0.0, None  # 记录全局最优信息
     save_model = False
 
-    writer = SummaryWriter()
+    writer = SummaryWriter('./runs/{}'.format(ex_name))
     iter = 0
     for epoch in range(args.epoch_num):
         for batch_x, batch_y in train_loader:
@@ -173,25 +175,35 @@ def train(model,
                 train_loss, train_acc = loss.item(), acc
                 val_loss, val_acc = val(model, val_loader)
                 test_info_list = [val(model, loader) for loader in test_loaders]
-                print("\n[INFO] Epoch {} Iter {}:\n \
-                            \tTrain: Loss {:.4f}, Accuracy {:.4f}\n \
-                            \tVal:   Loss {:.4f}, Accuracy {:.4f}".format(epoch + 1, iter,
-                                                                          train_loss, train_acc,
-                                                                          val_loss, val_acc))
-                for ii, (test_loss, test_acc) in enumerate(test_info_list):
-                    print("\tTest{}: Loss {:.4f}, Accuracy {:.4f}".format(ii, test_loss, test_acc))
+                print("\n[INFO] Epoch {} Iter {}:".format(epoch, iter))
+                print("\t\t\t\t\t\tTrain: Loss {:.4f}, Accuracy {:.4f}".format(train_loss, train_acc))
+                print("\t\t\t\t\t\tVal:   Loss {:.4f}, Accuracy {:.4f}".format(val_loss, val_acc))
 
+                test_acc_dict, test_loss_dict = {}, {}
+                for ii, (test_loss, test_acc) in enumerate(test_info_list):
+                    print("\t\t\t\t\t\tTest{}: Loss {:.4f}, Accuracy {:.4f}".format(ii, test_loss, test_acc))
+                    test_acc_dict[f'test{ii}_acc'] = test_acc
+                    test_loss_dict[f'test{ii}_loss'] = test_loss
+
+                acc_value_dict = {'train_acc': train_acc,
+                                  'val_acc': val_acc}
+                loss_value_dict = {'train_loss': train_loss,
+                                   'val_loss': val_loss}
+                acc_value_dict.update(
+                    test_acc_dict
+                )
+                loss_value_dict.update(
+                    test_loss_dict
+                )
                 tensorboard_write(writer=writer,
                                   ex_name=ex_name,
-                                  mode_name='{} {}'.format(save_path.split('/')[-1], 'acc'),
-                                  value_dict={'train_acc': train_acc,
-                                              'val_acc': val_acc},
+                                  mode_name='{} {}'.format(model_name, 'acc'),
+                                  value_dict=acc_value_dict,
                                   x_axis=iter)
                 tensorboard_write(writer=writer,
                                   ex_name=ex_name,
-                                  mode_name='{} {}'.format(save_path.split('/')[-1], 'loss'),
-                                  value_dict={'train_loss': train_loss,
-                                              'val_loss': val_loss},
+                                  mode_name='{} {}'.format(model_name, 'loss'),
+                                  value_dict=loss_value_dict,
                                   x_axis=iter)
 
                 # 更新全局最优信息
@@ -200,26 +212,39 @@ def train(model,
                     save_model = True
                 if save_model:
                     # 保存模型
-                    torch.save(model.module.state_dict(), '{}_best.pt'.format(save_path))
+                    torch.save(model.module.state_dict(), os.path.join(save_dir, f'{model_name}_best.pt'))
                     save_model = False
 
                 print("\t best val   acc so far: {:.4} Iter: {}".format(best_val_acc, best_val_iter))
 
-                # torch.save(model.module.state_dict(), '{}_i{}.pt'.format(save_path, iter))
+                # torch.save(model.module.state_dict(), os.path.join(save_dir, f'{model_name}_i{iter}.pt')
+
+        scheduler.step()
 
         # 保存模型
-        # torch.save(model.module.state_dict(), '{}_e{}.pt'.format(save_path, epoch))
-        scheduler.step()
+        save_epoch = False
+        if save_epoch:
+            epoch_save_path = os.path.join(save_dir, 'epoch')
+            if not os.path.exists(epoch_save_path):
+                os.mkdir(epoch_save_path)
+            torch.save(model.module.state_dict(), f'{epoch_save_path}/{model_name}_e{epoch}.pt')
 
 
 @torch.no_grad()
 def val(model, dataloader):
+    """
+    batch级别的loss & 样本级别的acc
+    :param model:
+    :param dataloader:
+    :return:
+    """
     model.eval()
 
     loss_fn = nn.CrossEntropyLoss()
 
     loss_sum = 0
-    acc_sum = 0
+    correct_sum = 0
+    num_x = 0
     for batch_x, batch_y in dataloader:
         batch_x = batch_x.to(device)
         batch_y = batch_y.to(device).squeeze()
@@ -228,31 +253,24 @@ def val(model, dataloader):
         y_hat = model(batch_x)
         loss = loss_fn(y_hat, batch_y)
 
-        loss_sum += loss.item()
         # 计算精度
         _, pred = y_hat.max(1)
         num_correct = (pred == batch_y).sum().item()
-        acc = num_correct / len(batch_y)
-        acc_sum += acc
+
+        num_x += len(batch_x)
+        loss_sum += loss.item()
+        correct_sum += num_correct
 
     model.train()
 
-    return loss_sum / len(dataloader), acc_sum / len(dataloader)
+    return loss_sum / len(dataloader), correct_sum / num_x
 
 
-def plot(img):
-    # (c, h, w) -> (h, w, c)
-    img = np.transpose(img, (1, 2, 0))
-    plt.axis('off')
-    plt.imshow(img)
-    plt.show()
-
-
-def tensorboard_write(writer, ex_name: str, mode_name, value_dict, x_axis):
+def tensorboard_write(writer, ex_name, mode_name, value_dict, x_axis):
     """
     tensorboardX 作图
     :param writer:
-    :param ex_name: 实验名称
+    :param ex_name:
     :param mode_name: 模型名称+数据 eg. resnet18 acc
     :param value_dict:
     :param x_axis:
@@ -287,6 +305,8 @@ class Experiment:
         :return:
         """
         assert 0 <= dataset_type < 4
+
+        _class = int(_class)
 
         if dataset_type == 0:
             return ShiftedMNIST(_class=_class)
@@ -331,63 +351,8 @@ class Experiment:
 
         return _Dataset(dataset, _train=True), _Dataset(dataset, _train=False)
 
-    @staticmethod
-    def _basic_test(model, dataset):
-        """
-        获取模型在某个测试集上的loss和acc
-        :param model:
-        :param dataset:
-        :return:
-        """
-        model = nn.parallel.DataParallel(model)
-        model.to(device)
-
-        loader = DataLoader(dataset, batch_size=args.batch_size, num_workers=10)
-        loss, acc = val(model, loader)
-        return loss, acc
-
     @classmethod
-    def _ex_train(cls, model, save_path, ex_name, train_dataset, val_dataset, test_dataset=None):
-        """
-        模型训练
-        :param model:
-        :param save_path:
-        :param ex_name:
-        :param train_dataset:
-        :param val_dataset:
-        :param test_dataset:
-        :return:
-        """
-        train(model, save_path=save_path, ex_name=ex_name,
-              train_dataset=train_dataset, val_dataset=val_dataset, test_datasets=test_dataset)
-
-    @classmethod
-    def _ex_test(cls, model, save_path, dataset_type, train_class, test_class_list):
-        """
-        模型测试：返回模型在某种分布迁移下的测试准确率列表
-        :param model:
-        :param save_path
-        :param dataset_type:
-        :return:
-        """
-        model.load_state_dict(torch.load(f'{save_path}_best.pt'))
-        acc_list = []
-
-        # 验证集准确率
-        train_dataset = cls._get_dataset(dataset_type, _class=train_class)
-        _, val_dataset = cls._split_train_val(train_dataset)
-        _, acc = cls._basic_test(model, val_dataset)
-        acc_list.append(acc)
-
-        for _class in test_class_list:
-            test_dataset = cls._get_dataset(dataset_type, _class=_class)
-            _, acc = cls._basic_test(model, test_dataset)
-            acc_list.append(acc)
-
-        return acc_list
-
-    @classmethod
-    def _ex(cls, _train, model, save_dir, model_name, ex_name, dataset_type, train_class, test_class_list):
+    def _ex(cls, model, save_dir, model_name, ex_name, dataset_type, train_class, test_classes):
         """
         模型训练 or 测试
         :param _train: 训练 or 测试
@@ -398,18 +363,19 @@ class Experiment:
         :return:
         """
         model_name = f'd{str(dataset_type)}c{str(train_class)}_{model_name}'
-        save_path = os.path.join(save_dir, model_name)
 
-        if _train:
-            dataset = cls._get_dataset(dataset_type, _class=train_class)
-            train_dataset, val_dataset = cls._split_train_val(dataset)
+        dataset = cls._get_dataset(dataset_type, _class=train_class)
 
-            cls._ex_train(model, save_path, ex_name, train_dataset, val_dataset)
-        else:
-            return cls._ex_test(model, save_path, dataset_type, train_class, test_class_list)
+        train_dataset, val_dataset = cls._split_train_val(dataset)
+        if test_classes is None:
+            test_classes = []
+        test_datasets = [cls._get_dataset(dataset_type, _class=test_class) for test_class in test_classes]
+
+        train(model, save_dir=save_dir, model_name=model_name, ex_name=ex_name,
+              train_dataset=train_dataset, val_dataset=val_dataset, test_datasets=test_datasets)
 
     @classmethod
-    def ex1(cls, _train=False):
+    def ex1(cls):
         args.batch_size = 1024
         print(args)
 
@@ -420,11 +386,11 @@ class Experiment:
         model = models.resnet18(num_classes=10)
         model_name = 'res18'
 
-        return cls._ex(_train, model, save_dir, model_name, ex_name,
-                       args.dataset_type, args.train_class, test_class_list=args.test_classes)
+        return cls._ex(model, save_dir, model_name, ex_name,
+                       args.dataset_type, args.train_class, args.test_classes)
 
     @classmethod
-    def ex2(cls, _train=False):
+    def ex2(cls):
         args.batch_size = 1024
         print(args)
 
@@ -435,11 +401,11 @@ class Experiment:
         model = models.squeezenet1_0(num_classes=10)
         model_name = 'squeezenet1_0'
 
-        return cls._ex(_train, model, save_dir, model_name, ex_name,
-                       args.dataset_type, args.train_class, test_class_list=args.test_classes)
+        return cls._ex(model, save_dir, model_name, ex_name,
+                       args.dataset_type, args.train_class, args.test_classes)
 
     @classmethod
-    def ex3(cls, _train=False):
+    def ex3(cls):
         args.batch_size = 1024
         print(args)
 
@@ -450,11 +416,11 @@ class Experiment:
         model = models.squeezenet1_1(num_classes=10)
         model_name = 'squeezenet1_1'
 
-        return cls._ex(_train, model, save_dir, model_name, ex_name,
-                       args.dataset_type, args.train_class, test_class_list=args.test_classes)
+        return cls._ex(model, save_dir, model_name, ex_name,
+                       args.dataset_type, args.train_class, args.test_classes)
 
     @classmethod
-    def ex4(cls, _train=False):
+    def ex4(cls):
         args.batch_size = 1024
         print(args)
 
@@ -465,11 +431,11 @@ class Experiment:
         model = models.resnet34(num_classes=10)
         model_name = 'resnet34'
 
-        return cls._ex(_train, model, save_dir, model_name, ex_name,
-                       args.dataset_type, args.train_class, test_class_list=args.test_classes)
+        return cls._ex(model, save_dir, model_name, ex_name,
+                       args.dataset_type, args.train_class, args.test_classes)
 
     @classmethod
-    def ex5(cls, _train=False):
+    def ex5(cls):
         args.batch_size = 1024
         print(args)
 
@@ -480,45 +446,43 @@ class Experiment:
         model = models.mobilenet_v3_small(num_classes=10)
         model_name = 'mobilenet_v3_small'
 
-        return cls._ex(_train, model, save_dir, model_name, ex_name,
-                       args.dataset_type, args.train_class, test_class_list=args.test_classes)
+        return cls._ex(model, save_dir, model_name, ex_name,
+                       args.dataset_type, args.train_class, args.test_classes)
 
 
 def tst():
-    def _tst():
+    import csv
+
+    def _basic_test(model, dataset, batch_size=args.batch_size):
         """
-        获取整体测试结果
+        获取模型在某个测试集上的loss和acc
+        :param batch_size:
+        :param model:
+        :param dataset:
         :return:
         """
-        import csv
-        global device
-        os.environ["CUDA_VISIBLE_DEVICES"] = "4"
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model = nn.parallel.DataParallel(model)
+        model.to(device)
 
-        models = ['ResNet18', 'SqueezeNet1.0', 'SqueezeNet1.1', 'ResNet34', 'MobileNet v3']
-        acc_list = []
+        loader = DataLoader(dataset, batch_size=batch_size, num_workers=args.num_workers)
+        loss, acc = val(model, loader)
+        return loss, acc
 
-        for i, ex_num in enumerate([1, 2, 3, 4, 5]):
-            args.ex_num = str(ex_num)
-            args.dataset_type = 3
+    global device
+    os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-            for _class in range(0, 1):
-                args.train_class = _class  # 训练类
-                args.test_classes = list(range(1, 7))  # 测试类
-
-                ex_ = getattr(Experiment, f'ex{args.ex_num}')
-                acc = ex_(False)
-                acc_list.append(acc)
-
-        csv.writer(open('./count/cluster_result.csv', 'w')).writerows(acc_list)
-
-    _tst()
+    model = models.resnet18(num_classes=10)
+    model.load_state_dict(torch.load('./ckpts/ex1/d0c2_res18_best.pt'))
+    dataset = ShiftedMNIST(_class=5)
+    _, acc = _basic_test(model, dataset, batch_size=2048)
+    print(acc)
 
 
 if __name__ == '__main__':
     if args.debug is not True:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         ex = getattr(Experiment, f'ex{args.ex_num.strip()}')
-        ex(_train=True)
+        ex()
     else:
         tst()

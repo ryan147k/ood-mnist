@@ -293,6 +293,9 @@ class ColorMNIST:
             len_c = len(labels[labels == label])
             len1_4 = int(len_c / 4)
             color = ['r'] * len1_4 + ['y'] * len1_4 + ['g'] * len1_4 + ['b'] * (len_c - len1_4 * 3)
+
+            random.seed(2)
+            random.shuffle(color)
             colors.append(np.array(color))
 
         # origin
@@ -620,4 +623,4 @@ class ColorMNIST:
 
 
 if __name__ == '__main__':
-    ClusterMNIST.mnist2file()
+    ColorMNIST.mnist_shift2file()
