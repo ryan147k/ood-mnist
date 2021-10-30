@@ -67,6 +67,6 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     model = models.resnet18(num_classes=10)
-    model.load_state_dict(torch.load('./ckpts/ex1/d0c3_res18_best.pt'))
-    loader = DataLoader(ShiftedMNIST(_class=6), batch_size=128, num_workers=3)
+    model.load_state_dict(torch.load('./ckpts/ex6/res18_best.pt'))
+    loader = DataLoader(ShiftedMNIST(_class=1), batch_size=128, num_workers=3)
     plot_confusion_matrix(get_confusion_matrix(model, loader, device))

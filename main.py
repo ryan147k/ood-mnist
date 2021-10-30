@@ -18,7 +18,6 @@ import random
 from PIL import Image
 import pickle
 
-
 parser = argparse.ArgumentParser()
 parser.add_argument('--debug', default=True)
 parser.add_argument('--ex_num', type=str)
@@ -137,7 +136,7 @@ def train(model,
     print(model.module)
 
     loss_fn = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(params=model.parameters(),
+    optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, model.parameters()),
                                  lr=args.lr,
                                  weight_decay=args.weight_decay)
     lr_scheduler = lambda x: 1.0 if x < 30 else 0.8
@@ -281,6 +280,43 @@ def tensorboard_write(writer, ex_name, mode_name, value_dict, x_axis):
                        global_step=x_axis)
 
 
+def split_train_val(dataset, split_num=None):
+    """
+    将dataset分成两个dataset: train & val
+    :param split_num:
+    :param dataset:
+    :return:
+    """
+
+    class _Dataset(Dataset):
+        def __init__(self, dataset, _train, split_num):
+            self.dataset = dataset
+
+            index_list = list(range(len(dataset)))
+            random.seed(2)
+            random.shuffle(index_list)
+
+            if split_num is None:
+                split_num = int(len(dataset) * 9 / 10)
+            train_index_list = index_list[:split_num]
+            val_index_list = index_list[split_num:]
+
+            self.index_list = train_index_list if _train else val_index_list
+
+        def __getitem__(self, index):
+            data, label = self.dataset[self.index_list[index]]
+            return data, label
+
+        def __len__(self):
+            return len(self.index_list)
+
+        def collate_fn(self, batch):
+            return self.dataset.collate_fn(batch)
+
+    return _Dataset(dataset, _train=True, split_num=split_num), \
+        _Dataset(dataset, _train=False, split_num=split_num)
+
+
 class Experiment:
     """
     记录每一次的实验设置
@@ -317,45 +353,10 @@ class Experiment:
         else:
             return ClusteredMNIST(_class=_class)
 
-    @staticmethod
-    def _split_train_val(dataset):
-        """
-        将dataset分成两个dataset: train & val
-        :param dataset:
-        :return:
-        """
-
-        class _Dataset(Dataset):
-            def __init__(self, dataset, _train=True):
-                self.dataset = dataset
-
-                index_list = list(range(len(dataset)))
-                random.seed(2)
-                random.shuffle(index_list)
-
-                split_num = int(len(dataset) * 9 / 10)
-                train_index_list = index_list[:split_num]
-                val_index_list = index_list[split_num:]
-
-                self.index_list = train_index_list if _train else val_index_list
-
-            def __getitem__(self, index):
-                data, label = self.dataset[self.index_list[index]]
-                return data, label
-
-            def __len__(self):
-                return len(self.index_list)
-
-            def collate_fn(self, batch):
-                return self.dataset.collate_fn(batch)
-
-        return _Dataset(dataset, _train=True), _Dataset(dataset, _train=False)
-
     @classmethod
     def _ex(cls, model, save_dir, model_name, ex_name, dataset_type, train_class, test_classes):
         """
         模型训练 or 测试
-        :param _train: 训练 or 测试
         :param model:
         :param save_dir: 模型检查点保存目录
         :param model_name: 模型名称
@@ -366,7 +367,7 @@ class Experiment:
 
         dataset = cls._get_dataset(dataset_type, _class=train_class)
 
-        train_dataset, val_dataset = cls._split_train_val(dataset)
+        train_dataset, val_dataset = split_train_val(dataset)
         if test_classes is None:
             test_classes = []
         test_datasets = [cls._get_dataset(dataset_type, _class=test_class) for test_class in test_classes]
@@ -449,6 +450,30 @@ class Experiment:
         return cls._ex(model, save_dir, model_name, ex_name,
                        args.dataset_type, args.train_class, args.test_classes)
 
+    @classmethod
+    def ex6(cls):
+        """
+        pretrained model
+        :return:
+        """
+        args.batch_size = 32
+        args.epoch = 200
+        print(args)
+
+        ex_name = 'ex6'
+        save_dir = './ckpts/ex6'
+        cls._mkdir(save_dir)
+
+        model = models.resnet18(pretrained=True)
+        model.fc = nn.Linear(512, 10)
+        model.requires_grad_(False)
+        model.fc.requires_grad_(True)
+        model_name = 'res18'
+
+        dataset = ShiftedMNIST(_class=1)
+        train_dataset, _ = split_train_val(dataset, 200)
+        train(model, save_dir, model_name, ex_name, train_dataset, train_dataset)
+
 
 def tst():
     import csv
@@ -472,11 +497,25 @@ def tst():
     os.environ["CUDA_VISIBLE_DEVICES"] = "5"
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    model = models.resnet18(num_classes=10)
-    model.load_state_dict(torch.load('./ckpts/ex1/d0c2_res18_best.pt'))
-    dataset = ShiftedMNIST(_class=5)
-    _, acc = _basic_test(model, dataset, batch_size=2048)
-    print(acc)
+    model_list = [models.resnet18(num_classes=10),
+                  models.squeezenet1_0(num_classes=10),
+                  models.squeezenet1_1(num_classes=10),
+                  models.resnet34(num_classes=10),
+                  models.mobilenet_v3_small(num_classes=10)]
+    ckpt_list = ['./ckpts/ex1/d0c3_res18_best.pt',
+                 './ckpts/ex2/d0c3_squeezenet1_0_best.pt',
+                 './ckpts/ex3/d0c3_squeezenet1_1_best.pt',
+                 './ckpts/ex4/d0c3_resnet34_best.pt',
+                 './ckpts/ex5/d0c3_mobilenet_v3_small_best.pt']
+
+    _, dataset_iid = split_train_val(ShiftedMNIST(_class=3))
+    dataset_ood = ShiftedMNIST(_class=6)
+
+    for model, ckpt in zip(model_list, ckpt_list):
+        model.load_state_dict(torch.load(ckpt))
+        _, iid = _basic_test(model, dataset_iid)
+        _, ood = _basic_test(model, dataset_ood)
+        print(f'{iid*100}, {ood*100}')
 
 
 if __name__ == '__main__':
