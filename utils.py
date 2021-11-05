@@ -33,7 +33,7 @@ def plot_confusion_matrix(confusion_mat):
     plt.yticks(tick_marks, tick_marks)
     plt.ylabel('True label')
     plt.xlabel('Predicted label')
-    plt.show()
+    plt.savefig('scatter.pdf')
 
 
 @torch.no_grad()
@@ -63,10 +63,10 @@ def get_confusion_matrix(model, loader, device):
 
 
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '5'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '7'
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     model = models.resnet18(num_classes=10)
-    model.load_state_dict(torch.load('./ckpts/ex6/res18_best.pt'))
-    loader = DataLoader(ShiftedMNIST(_class=1), batch_size=128, num_workers=3)
+    model.load_state_dict(torch.load('./ckpts/ex1/d0c2_res18_best.pt'))
+    loader = DataLoader(ShiftedMNIST(_class=5), batch_size=128, num_workers=3)
     plot_confusion_matrix(get_confusion_matrix(model, loader, device))
