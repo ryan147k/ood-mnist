@@ -523,104 +523,172 @@ class ColorMNIST:
         cls._imgs2file(imgs, img_colors, img_labels, data_dir)
 
     @classmethod
-    def mnist_diversity2file(cls):
-        np.random.seed(2)
+    def mnist_marginal2file(cls):
+        def f():
+            os.makedirs(train_data_dir, exist_ok=True)
+            os.makedirs(test_data_dir, exist_ok=True)
+
+            train_imgs, train_colors, train_labels = None, None, None
+            test_imgs, test_colors, test_labels = None, None, None
+            for label in range(10):
+                color_l = colors[label]
+                data_l = data[labels == label]  # 某个类别的数据
+
+                for i, c in enumerate(('r', 'y', 'g', 'b')):
+                    index = np.array(color_l == c)
+                    data_c = data_l[index]  # 某个颜色的数据
+                    color_c = color_l[index]
+                    labels_c = [label] * len(data_c)
+
+                    split = int(p[i] * len(data_c))  # 分割数据集
+
+                    train_imgs = data_c[:split] if train_imgs is None \
+                        else np.concatenate((train_imgs, data_c[:split]), axis=0)
+                    train_colors = color_c[:split] if train_colors is None \
+                        else np.concatenate((train_colors, color_c[:split]), axis=0)
+                    train_labels = labels_c[:split] if train_labels is None \
+                        else np.concatenate((train_labels, labels_c[:split]), axis=0)
+
+                    test_imgs = data_c[split:] if test_imgs is None \
+                        else np.concatenate((test_imgs, data_c[split:]), axis=0)
+                    test_colors = color_c[split:] if test_colors is None \
+                        else np.concatenate((test_colors, color_c[split:]), axis=0)
+                    test_labels = labels_c[split:] if test_labels is None \
+                        else np.concatenate((test_labels, labels_c[split:]), axis=0)
+
+            cls._imgs2file(train_imgs, train_colors, train_labels, train_data_dir)
+            cls._imgs2file(test_imgs, test_colors, test_labels, test_data_dir)
 
         root = './dataset/mnist_diversity'
 
-        for i in range(5):
-            data_dir = f'{root}/{str(i)}'
-            if not os.path.exists(data_dir):
-                os.mkdir(data_dir)
+        data = cls.data.squeeze()
+        labels = cls.labels
 
-            start = 12000 * i
-            data = cls.data[start: start + 12000].squeeze()
-            labels = cls.labels[start: start + 12000]
+        colors = []
+        for label in range(10):
+            len_c = len(labels[labels == label])
+            len1_4 = int(len_c / 4)
+            color = ['r'] * len1_4 + ['y'] * len1_4 + ['g'] * len1_4 + ['b'] * (len_c - len1_4 * 3)
 
-            for idx, (img, label) in tqdm(enumerate(zip(data, labels))):
-                color = 'r'
+            random.seed(2)
+            random.shuffle(color)
+            colors.append(np.array(color))
 
-                p = np.random.uniform()
+        # [（0.5, 0.5, 0.5, 0.5)
+        p = (0.5, 0.5, 0.5, 0.5)
+        train_data_dir, test_data_dir = f'{root}/0/train', f'{root}/0/test'
+        f()
 
-                if i == 0:
-                    pass
-                elif i == 1:
-                    if 1/2 <= p:
-                        color = 'g'
-                elif i == 2:
-                    if 1/3 <= p < 2/3:
-                        color = 'g'
-                    elif 2/3 <= p:
-                        color = 'y'
-                elif i == 3:
-                    if 1/4 <= p < 2/4:
-                        color = 'g'
-                    elif 2/4 <= p < 3/4:
-                        color = 'y'
-                    elif 3/4 <= p:
-                        color = 'cyan'
-                else:
-                    if 1/5 <= p < 2/5:
-                        color = 'g'
-                    elif 2/5 <= p < 3/5:
-                        color = 'y'
-                    elif 3/5 <= p < 4/5:
-                        color = 'cyan'
-                    elif 4/5 <= p:
-                        color = 'b'
+        # (0.9, 0.7, 0.3, 0.1)
+        p = (0.9, 0.7, 0.3, 0.1)
+        train_data_dir, test_data_dir = f'{root}/1/train', f'{root}/1/test'
+        f()
 
-                img = cls._color_img(img.squeeze().numpy(), color)
-                img = img.transpose((2, 0, 1))
-                img = torch.from_numpy(img)
-                img = transforms.ToPILImage()(img)
+        # (1, 0.9, 0.1, 0)
+        p = (1, 0.9, 0.1, 0)
+        train_data_dir, test_data_dir = f'{root}/2/train', f'{root}/2/test'
+        f()
 
-                name = f'{str(int(label))}_{cls._num2str(idx + 1)}.jpg'
-                img.save(f'{data_dir}/{name}')
+        # (1, 1, 0, 0)
+        p = (1, 1, 0, 0)
+        train_data_dir, test_data_dir = f'{root}/3/train', f'{root}/3/test'
+        f()
 
     @classmethod
-    def mnist_correlation2file(cls):
-        np.random.seed(2)
+    def mnist_conditional2file(cls):
+        def f():
+            os.makedirs(train_data_dir, exist_ok=True)
+            os.makedirs(test_data_dir, exist_ok=True)
+
+            train_imgs, train_colors, train_labels = None, None, None
+            test_imgs, test_colors, test_labels = None, None, None
+            for label in range(0, 5):
+                color_l = colors[label]
+                data_l = data[labels == label]  # 某个类别的数据
+
+                for i, c in enumerate(('r', 'y', 'g', 'b')):
+                    index = np.array(color_l == c)
+                    data_c = data_l[index]  # 某个颜色的数据
+                    color_c = color_l[index]
+                    labels_c = [label] * len(data_c)
+
+                    split = int(p[i] * len(data_c))  # 分割数据集
+
+                    train_imgs = data_c[:split] if train_imgs is None \
+                        else np.concatenate((train_imgs, data_c[:split]), axis=0)
+                    train_colors = color_c[:split] if train_colors is None \
+                        else np.concatenate((train_colors, color_c[:split]), axis=0)
+                    train_labels = labels_c[:split] if train_labels is None \
+                        else np.concatenate((train_labels, labels_c[:split]), axis=0)
+
+                    test_imgs = data_c[split:] if test_imgs is None \
+                        else np.concatenate((test_imgs, data_c[split:]), axis=0)
+                    test_colors = color_c[split:] if test_colors is None \
+                        else np.concatenate((test_colors, color_c[split:]), axis=0)
+                    test_labels = labels_c[split:] if test_labels is None \
+                        else np.concatenate((test_labels, labels_c[split:]), axis=0)
+            for label in range(5, 10):
+                color_l = colors[label]
+                data_l = data[labels == label]  # 某个类别的数据
+
+                for i, c in enumerate(('r', 'y', 'g', 'b')):
+                    index = np.array(color_l == c)
+                    data_c = data_l[index]  # 某个颜色的数据
+                    color_c = color_l[index]
+                    labels_c = [label] * len(data_c)
+
+                    q = 1 - p[i]
+                    split = int(q * len(data_c))  # 分割数据集
+
+                    train_imgs = data_c[:split] if train_imgs is None \
+                        else np.concatenate((train_imgs, data_c[:split]), axis=0)
+                    train_colors = color_c[:split] if train_colors is None \
+                        else np.concatenate((train_colors, color_c[:split]), axis=0)
+                    train_labels = labels_c[:split] if train_labels is None \
+                        else np.concatenate((train_labels, labels_c[:split]), axis=0)
+
+                    test_imgs = data_c[split:] if test_imgs is None \
+                        else np.concatenate((test_imgs, data_c[split:]), axis=0)
+                    test_colors = color_c[split:] if test_colors is None \
+                        else np.concatenate((test_colors, color_c[split:]), axis=0)
+                    test_labels = labels_c[split:] if test_labels is None \
+                        else np.concatenate((test_labels, labels_c[split:]), axis=0)
+
+            cls._imgs2file(train_imgs, train_colors, train_labels, train_data_dir)
+            cls._imgs2file(test_imgs, test_colors, test_labels, test_data_dir)
 
         root = './dataset/mnist_correlation'
 
-        for i in range(5):
-            data_dir = f'{root}/{str(i)}'
-            if not os.path.exists(data_dir):
-                os.mkdir(data_dir)
+        data = cls.data.squeeze()
+        labels = cls.labels
 
-            start = 12000 * i
-            data = cls.data[start: start + 12000].squeeze()
-            labels = cls.labels[start: start + 12000]
+        colors = []
+        for label in range(10):
+            len_c = len(labels[labels == label])
+            len1_4 = int(len_c / 4)
+            color = ['r'] * len1_4 + ['y'] * len1_4 + ['g'] * len1_4 + ['b'] * (len_c - len1_4 * 3)
 
-            for idx, (img, label) in tqdm(enumerate(zip(data, labels))):
-                color = 'r' if int(label) < 5 else 'g'
-                color_opp = 'g' if int(label) < 5 else 'r'
+            random.seed(2)
+            random.shuffle(color)
+            colors.append(np.array(color))
 
-                if i == 0:
-                    # 20% in the first training environment
-                    if np.random.uniform() < 0.2:
-                        color = color_opp
-                elif i == 1:
-                    if np.random.uniform() < 0.4:
-                        color = color_opp
-                elif i == 2:
-                    if np.random.uniform() < 0.6:
-                        color = color_opp
-                elif i == 3:
-                    if np.random.uniform() < 0.8:
-                        color = color_opp
-                else:
-                    if np.random.uniform() < 1:
-                        color = color_opp
-
-                img = cls._color_img(img.squeeze().numpy(), color)
-                img = img.transpose((2, 0, 1))
-                img = torch.from_numpy(img)
-                img = transforms.ToPILImage()(img)
-
-                name = f'{str(int(label))}_{cls._num2str(idx + 1)}.jpg'
-                img.save(f'{data_dir}/{name}')
+        # [（0.5, 0.5, 0.5, 0.5)
+        p = (0.5, 0.5, 0.5, 0.5)
+        train_data_dir, test_data_dir = f'{root}/0/train', f'{root}/0/test'
+        f()
+        p = (0.6, 0.6, 0.4, 0.4)
+        train_data_dir, test_data_dir = f'{root}/1/train', f'{root}/1/test'
+        f()
+        p = (0.7, 0.7, 0.3, 0.3)
+        train_data_dir, test_data_dir = f'{root}/2/train', f'{root}/2/test'
+        f()
+        p = (0.8, 0.8, 0.2, 0.2)
+        train_data_dir, test_data_dir = f'{root}/3/train', f'{root}/3/test'
+        f()
+        p = (1, 1, 0, 0)
+        train_data_dir, test_data_dir = f'{root}/4/train', f'{root}/4/test'
+        f()
 
 
 if __name__ == '__main__':
-    ColorMNIST.mnist_shift2file()
+    ColorMNIST.mnist_conditional2file()

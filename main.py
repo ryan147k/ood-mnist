@@ -82,26 +82,26 @@ class ShiftedMNIST(RawMNIST):
         super(ShiftedMNIST, self).__init__(root=f'./dataset/mnist_shift/{str(_class)}')
 
 
-class CorrelationMNIST(RawMNIST):
-    def __init__(self, _class):
+class ConditionalMNIST(RawMNIST):
+    def __init__(self, _class, train=True):
         """
         初始化数据集
         """
         assert 0 <= _class < 5
 
-        super(CorrelationMNIST, self).__init__(root=f'./dataset/mnist_correlation/{str(_class)}')
+        dir = 'train' if train else 'test'
+        super(ConditionalMNIST, self).__init__(root=f'./dataset/mnist_correlation/{dir}/{str(_class)}')
 
 
-class DiversityMNIST(RawMNIST):
-    def __init__(self, _class):
+class MarginalMNIST(RawMNIST):
+    def __init__(self, _class, train=True):
         """
         初始化数据集
-        :param data_dir: 数据集目录
-        :param dataset_name:  数据集名称 eg. train validation test1
         """
-        assert 0 <= _class < 5
+        assert 0 <= _class < 4
 
-        super(DiversityMNIST, self).__init__(root=f'./dataset/mnist_diversity/{str(_class)}')
+        dir = 'train' if train else 'test'
+        super(MarginalMNIST, self).__init__(root=f'./dataset/mnist_diversity/{dir}/{str(_class)}')
 
 
 class ClusteredMNIST(RawMNIST):
@@ -333,7 +333,7 @@ class Experiment:
             os.makedirs(save_dir)
 
     @staticmethod
-    def _get_dataset(dataset_type, _class):
+    def _get_dataset(dataset_type, _class, train=True):
         """
         根据 args.dataset_type 来获取 dataset
         :param dataset_type:
@@ -347,9 +347,9 @@ class Experiment:
         if dataset_type == 0:
             return ShiftedMNIST(_class=_class)
         elif dataset_type == 1:
-            return DiversityMNIST(_class=_class)
+            return MarginalMNIST(_class=_class, train=train)
         elif dataset_type == 2:
-            return CorrelationMNIST(_class=_class)
+            return ConditionalMNIST(_class=_class, train=train)
         else:
             return ClusteredMNIST(_class=_class)
 
