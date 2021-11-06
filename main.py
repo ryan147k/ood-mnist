@@ -25,7 +25,7 @@ parser.add_argument('--dataset_type', type=int)
 parser.add_argument('--train_class', type=int)
 parser.add_argument('--test_classes', type=list)
 
-parser.add_argument('--num_workers', type=int, default=12)
+parser.add_argument('--num_workers', type=int, default=5)
 parser.add_argument('--batch_size', type=int, default=512)
 parser.add_argument('--lr', type=float, default=1e-4)
 parser.add_argument('--weight_decay', type=float, default=1e-4)
@@ -47,7 +47,7 @@ class RawMNIST(Dataset):
 
     def __getitem__(self, index):
         for i in range(10):
-            img_path = f"{self.root}/{str(i)}_{self._num2str(index + 1)}.jpg"
+            img_path = os.path.join(self.root, f"{str(i)}_{self._num2str(index + 1)}.jpg")
             if os.path.exists(img_path):
                 break
         label = int(img_path.split('/')[-1].split('_')[0])
@@ -90,7 +90,7 @@ class ConditionalMNIST(RawMNIST):
         assert 0 <= _class < 5
 
         dir = 'train' if train else 'test'
-        super(ConditionalMNIST, self).__init__(root=f'./dataset/mnist_correlation/{dir}/{str(_class)}')
+        super(ConditionalMNIST, self).__init__(root=f'./dataset/mnist_correlation/{str(_class)}/{dir}')
 
 
 class MarginalMNIST(RawMNIST):
@@ -101,7 +101,7 @@ class MarginalMNIST(RawMNIST):
         assert 0 <= _class < 4
 
         dir = 'train' if train else 'test'
-        super(MarginalMNIST, self).__init__(root=f'./dataset/mnist_diversity/{dir}/{str(_class)}')
+        super(MarginalMNIST, self).__init__(root=f'./dataset/mnist_diversity/{str(_class)}/{dir}')
 
 
 class ClusteredMNIST(RawMNIST):
@@ -494,7 +494,7 @@ def tst():
         return loss, acc
 
     global device
-    os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "3"
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     model_list = [models.resnet18(num_classes=10),
@@ -502,20 +502,29 @@ def tst():
                   models.squeezenet1_1(num_classes=10),
                   models.resnet34(num_classes=10),
                   models.mobilenet_v3_small(num_classes=10)]
-    ckpt_list = ['./ckpts/ex1/d0c3_res18_best.pt',
-                 './ckpts/ex2/d0c3_squeezenet1_0_best.pt',
-                 './ckpts/ex3/d0c3_squeezenet1_1_best.pt',
-                 './ckpts/ex4/d0c3_resnet34_best.pt',
-                 './ckpts/ex5/d0c3_mobilenet_v3_small_best.pt']
 
-    _, dataset_iid = split_train_val(ShiftedMNIST(_class=3))
-    dataset_ood = ShiftedMNIST(_class=6)
+    res = []
 
-    for model, ckpt in zip(model_list, ckpt_list):
-        model.load_state_dict(torch.load(ckpt))
-        _, iid = _basic_test(model, dataset_iid)
-        _, ood = _basic_test(model, dataset_ood)
-        print(f'{iid*100}, {ood*100}')
+    for i in range(5):
+        res.append([])
+
+        ckpt_list = [f'./ckpts/ex1/d2c{i}_res18_best.pt',
+                     f'./ckpts/ex2/d2c{i}_squeezenet1_0_best.pt',
+                     f'./ckpts/ex3/d2c{i}_squeezenet1_1_best.pt',
+                     f'./ckpts/ex4/d2c{i}_resnet34_best.pt',
+                     f'./ckpts/ex5/d2c{i}_mobilenet_v3_small_best.pt']
+
+        dataset_ood = ConditionalMNIST(_class=i, train=False)
+
+        for model, ckpt in zip(model_list, ckpt_list):
+            model.load_state_dict(torch.load(ckpt))
+            _, ood = _basic_test(model, dataset_ood)
+            res[-1].append(ood * 100)
+
+    for l in res:
+        for n in l:
+            print(n, end=', ')
+        print()
 
 
 if __name__ == '__main__':
