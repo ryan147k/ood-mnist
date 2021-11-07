@@ -685,8 +685,11 @@ class ColorMNIST:
         p = (0.8, 0.8, 0.2, 0.2)
         train_data_dir, test_data_dir = f'{root}/3/train', f'{root}/3/test'
         f()
-        p = (1, 1, 0, 0)
+        p = (0.9, 0.9, 0.1, 0.1)
         train_data_dir, test_data_dir = f'{root}/4/train', f'{root}/4/test'
+        f()
+        p = (1, 1, 0, 0)
+        train_data_dir, test_data_dir = f'{root}/5/train', f'{root}/5/test'
         f()
 
 

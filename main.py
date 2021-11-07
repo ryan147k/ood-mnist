@@ -87,7 +87,7 @@ class ConditionalMNIST(RawMNIST):
         """
         初始化数据集
         """
-        assert 0 <= _class < 5
+        assert 0 <= _class < 6
 
         dir = 'train' if train else 'test'
         super(ConditionalMNIST, self).__init__(root=f'./dataset/mnist_correlation/{str(_class)}/{dir}')
@@ -494,7 +494,7 @@ def tst():
         return loss, acc
 
     global device
-    os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "2"
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     model_list = [models.resnet18(num_classes=10),
@@ -505,7 +505,7 @@ def tst():
 
     res = []
 
-    for i in range(5):
+    for i in range(6):
         res.append([])
 
         ckpt_list = [f'./ckpts/ex1/d2c{i}_res18_best.pt',
