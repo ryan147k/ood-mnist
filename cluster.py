@@ -692,6 +692,16 @@ class ColorMNIST:
         train_data_dir, test_data_dir = f'{root}/5/train', f'{root}/5/test'
         f()
 
+    @ classmethod
+    def show_examples(cls):
+        for i in range(5):
+            c = ['r', 'g', 'g', 'g', 'r']
+            img = cls._color_img(cls.data[i].squeeze().numpy(), c=c[i])
+            img = img.transpose((2, 0, 1))
+            img = torch.from_numpy(img)
+            img = transforms.ToPILImage()(img)
+            img.save(f'{i}.png')
+
 
 if __name__ == '__main__':
-    ColorMNIST.mnist_conditional2file()
+    ColorMNIST.show_examples()

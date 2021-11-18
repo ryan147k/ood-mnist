@@ -25,15 +25,16 @@ def get_input_grad(model, input):
 
 def plot_confusion_matrix(confusion_mat):
     cm = confusion_mat[:10, :10]
-    plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
-    plt.title('Confusion matrix')
+    plt.imshow(cm, interpolation='nearest')
+    # plt.title('Confusion matrix')
     plt.colorbar()
     tick_marks = np.arange(len(cm))
     plt.xticks(tick_marks, tick_marks)
     plt.yticks(tick_marks, tick_marks)
     plt.ylabel('True label')
     plt.xlabel('Predicted label')
-    plt.savefig('scatter.pdf')
+    plt.savefig('scatter.pdf', pad_inches=0.0, dpi=600)
+    plt.show()
 
 
 @torch.no_grad()

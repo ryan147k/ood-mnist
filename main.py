@@ -494,7 +494,7 @@ def tst():
         return loss, acc
 
     global device
-    os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "7"
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     model_list = [models.resnet18(num_classes=10),
@@ -505,21 +505,22 @@ def tst():
 
     res = []
 
+    dataset_tpye = 2
     for i in range(6):
         res.append([])
 
-        ckpt_list = [f'./ckpts/ex1/d2c{i}_res18_best.pt',
-                     f'./ckpts/ex2/d2c{i}_squeezenet1_0_best.pt',
-                     f'./ckpts/ex3/d2c{i}_squeezenet1_1_best.pt',
-                     f'./ckpts/ex4/d2c{i}_resnet34_best.pt',
-                     f'./ckpts/ex5/d2c{i}_mobilenet_v3_small_best.pt']
+        ckpt_list = [f'./ckpts/ex1/d{dataset_tpye}c{i}_res18_best.pt',
+                     f'./ckpts/ex2/d{dataset_tpye}c{i}_squeezenet1_0_best.pt',
+                     f'./ckpts/ex3/d{dataset_tpye}c{i}_squeezenet1_1_best.pt',
+                     f'./ckpts/ex4/d{dataset_tpye}c{i}_resnet34_best.pt',
+                     f'./ckpts/ex5/d{dataset_tpye}c{i}_mobilenet_v3_small_best.pt']
 
         dataset_ood = ConditionalMNIST(_class=i, train=False)
 
         for model, ckpt in zip(model_list, ckpt_list):
             model.load_state_dict(torch.load(ckpt))
             _, ood = _basic_test(model, dataset_ood)
-            res[-1].append(ood * 100)
+            res[-1].append(ood)
 
     for l in res:
         for n in l:
